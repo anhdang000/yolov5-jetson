@@ -45,7 +45,7 @@ def str2int(video_path):
     except ValueError:
         return video_path
         
-def open_cam_rtsp(uri, latency):
+def open_cam_rtsp(uri, latency=200):
 	gst_str = ("rtspsrc location={} latency={}  ! queue ! rtph264depay ! h264parse ! nvv4l2decoder enable-max-performance=1 ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR  ! appsink max-buffers=1 drop=True").format(uri, latency)
 	print(gst_str)
 	return cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
@@ -118,7 +118,6 @@ def inference(vehicles_model, main_model, cap, args):
             count += 1
             logging.info(f'Processing frame {count}')
             if args.crop_regions:
-                logging.info('Apply crop-regions approach')
                 candidate_results = vehicles_model(frame[:, :, ::-1]).pandas().xyxy[0]
                 candidates = []
                 if len(candidate_results) == 0:
@@ -141,21 +140,19 @@ def inference(vehicles_model, main_model, cap, args):
                     file_id = '_'.join(str(datetime.now()).split())
                     cv2.imwrite(osp.join(args.store_preds, file_id + '.jpg'), frame[:, :, ::-1])
             else:
-                logging.info('Apply direct detection approach')
                 results = main_model(frame[:, :, ::-1], size=640).pandas().xyxy[0]
-                logging.info(f'Number of detected boxes {len(results)}')
+                logging.info(f'Number of detected boxes: {len(results)}')
                 frame = draw_boxes(results, frame)
                 if args.store_preds and len(results) > 0:
                     file_id = '_'.join(str(datetime.now()).split())
                     file_path = osp.join(args.store_preds, file_id + '.jpg')
                     cv2.imwrite(file_path, frame)
-                    logging.info(f'Saved prediction at {file_path}')
+                    logging.info(f'Saved prediction at: {file_path}')
         else:
             break
 
 
 if __name__ == "__main__":
-    # Config logger
     logging.basicConfig(
         level=logging.INFO,
         format = (
