@@ -120,4 +120,4 @@ if __name__ == "__main__":
         cap = open_cam_file(input_path)
 
     vehicles_model, main_model = init_models(args)
-    inference(vehicles_model, main_model, cap, args.show)
+    inference(vehicles_model, main_model, cap, args)
