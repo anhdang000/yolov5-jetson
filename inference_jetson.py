@@ -48,7 +48,7 @@ def open_cam_file(uri):
 	return cv2.VideoCapture(gst_str, cv2.CAP_GSTREAMER)
 
 def init_models(args):
-    vehicles_model = torch.hub.load('ultralytics/yolov5', 'yolov5x')  # or yolov5m, yolov5l, yolov5x, custom
+    vehicles_model = torch.hub.load('.', 'custom', path='yolov5s.pt', source='local')  # or yolov5m, yolov5l, yolov5x, custom
     main_model = torch.hub.load('.', 'custom', path=args.weights, source='local')
     return vehicles_model, main_model
 
@@ -89,6 +89,8 @@ def inference(vehicles_model, main_model, cap, args):
             frame = frame[:, :, ::-1]
             results = vehicles_model(frame).pandas().xyxy[0]
             candidates = []
+            if len(results) == 0:
+                continue
             for _, result in results.iterrows():
                 if result['name'] in vehicles:
                     result['xmin'] = int(result['xmin'])
