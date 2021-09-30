@@ -7,6 +7,11 @@ import os.path as osp
 import json
 import argparse
 from datetime import datetime
+import logging
+import warnings
+
+# Warning 
+warnings.filterwarnings("ignore")
 
 def parser():
     parser = argparse.ArgumentParser(description="YOLOv5 Object Detection")
@@ -106,12 +111,15 @@ def draw_boxes(results, frame):
 
 def inference(vehicles_model, main_model, cap, args):
     vehicles = ['person', 'car', 'bus', 'train', 'truck']
+    count = 0
     while True:
         ret, frame = cap.read()
         if ret:
-            frame = frame[:, :, ::-1]
+            count += 1
+            logging.info(f'Processing frame {count}')
             if args.crop_regions:
-                candidate_results = vehicles_model(frame).pandas().xyxy[0]
+                logging.info('Apply crop-regions approach')
+                candidate_results = vehicles_model(frame[:, :, ::-1]).pandas().xyxy[0]
                 candidates = []
                 if len(candidate_results) == 0:
                     continue
@@ -122,7 +130,7 @@ def inference(vehicles_model, main_model, cap, args):
                         result['xmax'] = int(result['xmax'])
                         result['ymax'] = int(result['ymax'])
 
-                        crop_image = frame[result['ymin']:result['ymax'], result['xmin']:result['xmax'], :]
+                        crop_image = frame[result['ymin']:result['ymax'], result['xmin']:result['xmax'], ::-1]
                         candidates.append(crop_image)
 
                 phone_results = main_model(candidates, size=640).pandas().xyxy
@@ -133,16 +141,32 @@ def inference(vehicles_model, main_model, cap, args):
                     file_id = '_'.join(str(datetime.now()).split())
                     cv2.imwrite(osp.join(args.store_preds, file_id + '.jpg'), frame[:, :, ::-1])
             else:
-                results = main_model(frame, size=640).pandas().xyxy[0]
+                logging.info('Apply direct detection approach')
+                results = main_model(frame[:, :, ::-1], size=640).pandas().xyxy[0]
+                logging.info(f'Number of detected boxes {len(results)}')
                 frame = draw_boxes(results, frame)
                 if args.store_preds and len(results) > 0:
                     file_id = '_'.join(str(datetime.now()).split())
-                    cv2.imwrite(osp.join(args.store_preds, file_id + '.jpg'), frame[:, :, ::-1])
+                    file_path = osp.join(args.store_preds, file_id + '.jpg')
+                    cv2.imwrite(file_path, frame)
+                    logging.info(f'Saved prediction at {file_path}')
         else:
             break
 
 
 if __name__ == "__main__":
+    # Config logger
+    logging.basicConfig(
+        level=logging.INFO,
+        format = (
+            '%(levelname)s:\t'
+            '%(filename)s:'
+            '%(funcName)s():'
+            '%(lineno)d\t'
+            '%(message)s'
+            )
+        )
+
     args = parser()
     check_args_errors(args)
     if args.rtsp != 0:
@@ -154,6 +178,7 @@ if __name__ == "__main__":
     if args.store_preds:
         if not osp.isdir(args.store_preds):
             os.mkdir(args.store_preds)
-
+    logging.info('Initializing models ...')
     vehicles_model, main_model = init_models(args)
+    logging.info('Start inference')
     inference(vehicles_model, main_model, cap, args)
