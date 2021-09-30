@@ -106,10 +106,6 @@ def draw_boxes(results, frame):
 
 def inference(vehicles_model, main_model, cap, args):
     vehicles = ['person', 'car', 'bus', 'train', 'truck']
-    if args.output:
-        frame_width = int(cap.get(3))
-        frame_height = int(cap.get(4))
-        out = cv2.VideoWriter(args.output, cv2.VideoWriter_fourcc('M','J','P','G'), 10, (frame_width,frame_height))
     while True:
         ret, frame = cap.read()
         if ret:
@@ -158,6 +154,6 @@ if __name__ == "__main__":
     if args.store_preds:
         if not osp.isdir(args.store_preds):
             os.mkdir(args.store_preds)
-            
+
     vehicles_model, main_model = init_models(args)
     inference(vehicles_model, main_model, cap, args)
