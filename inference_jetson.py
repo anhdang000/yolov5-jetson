@@ -6,6 +6,7 @@ import os
 import os.path as osp
 import json
 import argparse
+from datetime import datetime
 
 def parser():
     parser = argparse.ArgumentParser(description="YOLOv5 Object Detection")
@@ -13,10 +14,12 @@ def parser():
                         help="rtsp source. If empty, throw error")
     parser.add_argument("--input", type=str, default=0,
                         help="video source. If empty, uses webcam 0 stream")
-    parser.add_argument("--output", type=str, default=None,
-                        help="inference video name. Not saved if empty")
     parser.add_argument("--weights", default="phone.pt",
                         help="YOLOv5 weights path")
+    parser.add_argument("--crop-regions", action='store_true',
+                        help="YOLOv5 weights path")
+    parser.add_argument("--store-preds", type=str, 
+                        help="Folder to save phone usage frame")
     parser.add_argument("--show", action='store_true',
                         help="Windown inference display")
     return parser.parse_args()
@@ -52,9 +55,35 @@ def init_models(args):
     main_model = torch.hub.load('.', 'custom', path=args.weights, source='local')
     return vehicles_model, main_model
 
+def draw_boxes_from_crops(phone_results, candidate_results, frame):
+    color = (80, 127, 255)
+    text_color = (255, 255, 255)
+
+    for result in range(len(phone_results)):
+        for i in range(len(result)):
+            xmin = int(result.loc[i]['xmin'])
+            ymin = int(result.loc[i]['ymin'])
+            xmax = int(result.loc[i]['xmax'])
+            ymax = int(result.loc[i]['ymax'])
+
+            # For bounding box
+            frame = cv2.rectangle(frame, (xmin, ymin), (xmax, ymax), color, 2)
+            # For the text background
+            # Finds space required by the text so that we can put a background with that amount of width.
+            (w, h), _ = cv2.getTextSize(
+                    'phone', cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
+            # Prints the text.    
+            frame = cv2.rectangle(frame, (xmin, ymin - 20), (xmin + w, ymin), color, -1)
+            frame = cv2.putText(frame, 'phone', (xmin, ymin - 5),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1)
+    return frame
+
 def draw_boxes(results, frame):
     color = (80, 127, 255)
     text_color = (255, 255, 255)
+
+    if len(results) == 0:
+        return frame
 
     for i in range(len(results)):
         xmin = int(results.loc[i]['xmin'])
@@ -72,12 +101,11 @@ def draw_boxes(results, frame):
         frame = cv2.rectangle(frame, (xmin, ymin - 20), (xmin + w, ymin), color, -1)
         frame = cv2.putText(frame, 'phone', (xmin, ymin - 5),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 1)
-
     return frame
 
 
 def inference(vehicles_model, main_model, cap, args):
-    vehicles = ['car', 'bus', 'train', 'truck']
+    vehicles = ['person', 'car', 'bus', 'train', 'truck']
     if args.output:
         frame_width = int(cap.get(3))
         frame_height = int(cap.get(4))
@@ -85,28 +113,35 @@ def inference(vehicles_model, main_model, cap, args):
     while True:
         ret, frame = cap.read()
         if ret:
-            # Make predictions
             frame = frame[:, :, ::-1]
-            results = vehicles_model(frame).pandas().xyxy[0]
-            candidates = []
-            if len(results) == 0:
-                continue
-            for _, result in results.iterrows():
-                if result['name'] in vehicles:
-                    result['xmin'] = int(result['xmin'])
-                    result['ymin'] = int(result['ymin'])
-                    result['xmax'] = int(result['xmax'])
-                    result['ymax'] = int(result['ymax'])
+            if args.crop_regions:
+                candidate_results = vehicles_model(frame).pandas().xyxy[0]
+                candidates = []
+                if len(candidate_results) == 0:
+                    continue
+                for _, result in candidate_results.iterrows():
+                    if result['name'] in vehicles:
+                        result['xmin'] = int(result['xmin'])
+                        result['ymin'] = int(result['ymin'])
+                        result['xmax'] = int(result['xmax'])
+                        result['ymax'] = int(result['ymax'])
 
-                    crop_image = frame[result['ymin']:result['ymax'], result['xmin']:result['xmax'], :]
-                    candidates.append(crop_image)
+                        crop_image = frame[result['ymin']:result['ymax'], result['xmin']:result['xmax'], :]
+                        candidates.append(crop_image)
 
-            phone_results = main_model(candidates, size=640).pandas().xyxy
-            frame = draw_boxes(phone_results, frame)
-            if args.show:
-                cv2.imshow('Frame',frame)
-            if args.output:
-                out.write(frame)
+                phone_results = main_model(candidates, size=640).pandas().xyxy
+                frame = draw_boxes_from_crops(phone_results, candidate_results, frame)
+                if args.show:
+                    cv2.imshow('Frame', frame[:, :, ::-1])
+                if args.store_preds and len(results) > 0:
+                    file_id = '_'.join(str(datetime.now()).split())
+                    cv2.imwrite(osp.join(args.store_preds, file_id + '.jpg'), frame[:, :, ::-1])
+            else:
+                results = main_model(frame, size=640).pandas().xyxy[0]
+                frame = draw_boxes(results, frame)
+                if args.store_preds and len(results) > 0:
+                    file_id = '_'.join(str(datetime.now()).split())
+                    cv2.imwrite(osp.join(args.store_preds, file_id + '.jpg'), frame[:, :, ::-1])
         else:
             break
 
@@ -120,6 +155,9 @@ if __name__ == "__main__":
     else:
         input_path = str2int(args.input)
         cap = open_cam_file(input_path)
-
+    if args.store_preds:
+        if not osp.isdir(args.store_preds):
+            os.mkdir(args.store_preds)
+            
     vehicles_model, main_model = init_models(args)
     inference(vehicles_model, main_model, cap, args)
